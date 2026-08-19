@@ -49,3 +49,12 @@ countdown -corner=top-left -monitor=1 10
 ```
 
 Valid corners: `top-left`, `top-right`, `bottom-left`, `bottom-right`.
+
+By default the window closes the moment the countdown hits zero. Use
+`-timeout` to change that: it keeps blinking yellow/red past zero.
+
+```bash
+countdown -timeout=0 10    # close immediately at zero (default)
+countdown -timeout=30 10   # keep blinking for 30 more seconds, then close
+countdown -timeout=-1 10   # keep blinking until interrupted (Ctrl+C)
+```

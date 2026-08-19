@@ -100,9 +100,16 @@ type Game struct {
 	corner             string // explicit corner requested via -corner, or "" to use saved/default
 	monitorIdx         int    // explicit monitor requested via -monitor, or -1 to use saved/default
 	resolvedMonitorIdx int    // the monitor index actually used, for persisting to state
+
+	// timeout controls what happens once the countdown hits zero:
+	//   0  -> close immediately
+	//   <0 -> stay open (still blinking) until interrupted
+	//   >0 -> stay open for that many extra seconds, then close
+	timeout int
+	zeroAt  time.Time // when the countdown first hit zero; zero value means it hasn't yet
 }
 
-func NewGame(minutes int, fontSize float64, corner string, monitorIdx int) *Game {
+func NewGame(minutes int, fontSize float64, corner string, monitorIdx, timeout int) *Game {
 	// Use the Go Bold font embedded in golang.org/x/image so we don't depend
 	// on any particular distro's font paths (e.g. DejaVu isn't guaranteed to
 	// live at a Debian-style path on Arch, or be installed at all).
@@ -128,17 +135,35 @@ func NewGame(minutes int, fontSize float64, corner string, monitorIdx int) *Game
 		windowResized: false,
 		corner:        corner,
 		monitorIdx:    monitorIdx,
+		timeout:       timeout,
 	}
 }
 
 func (g *Game) Update() error {
-	// Exit the game if the countdown is over
-	if time.Since(g.startTime) >= g.duration {
-		fmt.Println("Countdown complete!")
-		g.savePosition()
-		return ebiten.Termination
+	if time.Since(g.startTime) < g.duration {
+		return nil
 	}
-	return nil
+
+	if g.zeroAt.IsZero() {
+		g.zeroAt = time.Now()
+		fmt.Println("Countdown complete!")
+	}
+
+	switch {
+	case g.timeout == 0:
+		// Close immediately.
+	case g.timeout < 0:
+		// Stay open (still blinking) until interrupted.
+		return nil
+	default:
+		// Stay open for `timeout` extra seconds, then close.
+		if time.Since(g.zeroAt) < time.Duration(g.timeout)*time.Second {
+			return nil
+		}
+	}
+
+	g.savePosition()
+	return ebiten.Termination
 }
 
 // savePosition persists the window's current position and monitor so the
@@ -265,6 +290,7 @@ func main() {
 	corner := flag.String("corner", "", fmt.Sprintf("corner to place the window in (%s); defaults to the last remembered position, or bottom-right on first run", strings.Join(validCorners, ", ")))
 	monitorIdx := flag.Int("monitor", -1, "index of the monitor to display on (0-based, as listed by -list-monitors); defaults to the last remembered monitor, or the current one on first run")
 	listMonitors := flag.Bool("list-monitors", false, "list available monitors and exit")
+	timeout := flag.Int("timeout", 0, "what to do once the countdown hits zero: 0 closes immediately, a positive value keeps blinking for that many extra seconds then closes, -1 keeps blinking until interrupted")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [flags] <minutes>\n\nFlags:\n", os.Args[0])
 		flag.PrintDefaults()
@@ -299,7 +325,7 @@ func main() {
 	fontSize := 30.0
 
 	// Create a new game instance
-	game := NewGame(minutes, fontSize, *corner, *monitorIdx)
+	game := NewGame(minutes, fontSize, *corner, *monitorIdx, *timeout)
 
 	// Save the window position if the process is interrupted before the
 	// countdown finishes naturally (e.g. Ctrl+C).
