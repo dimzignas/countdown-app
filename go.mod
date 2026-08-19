@@ -5,6 +5,7 @@ go 1.23.3
 require (
 	github.com/hajimehoshi/ebiten/v2 v2.8.5
 	golang.org/x/image v0.20.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

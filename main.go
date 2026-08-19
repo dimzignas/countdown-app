@@ -20,6 +20,7 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/opentype"
+	"gopkg.in/yaml.v3"
 )
 
 // windowMargin is the gap kept between the window and the screen edge it's
@@ -83,6 +84,59 @@ func saveWindowState(x, y, monitorIdx int) error {
 		return err
 	}
 	data, err := json.Marshal(windowState{X: x, Y: y, MonitorIdx: monitorIdx})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+// config holds user preferences loaded from a YAML config file. Fields are
+// pointers so we can tell "not set in the file" apart from a legitimate
+// zero value, which matters for merging with CLI flags and defaults.
+type config struct {
+	Corner  *string  `yaml:"corner,omitempty"`
+	Monitor *int     `yaml:"monitor,omitempty"`
+	Timeout *int     `yaml:"timeout,omitempty"`
+	Scale   *float64 `yaml:"scale,omitempty"`
+	Hours   *int     `yaml:"hours,omitempty"`
+	Minutes *int     `yaml:"minutes,omitempty"`
+	Seconds *int     `yaml:"seconds,omitempty"`
+}
+
+// defaultConfigPath returns ~/.config/countdown/config.yaml.
+func defaultConfigPath() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "countdown", "config.yaml"), nil
+}
+
+// loadConfig reads the config file at path. A missing file is not an error
+// (it just means no preferences are set); a malformed one is fatal, since
+// silently ignoring a typo'd config would be confusing.
+func loadConfig(path string) config {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return config{}
+		}
+		log.Fatalf("Failed to read config file %s: %v", path, err)
+	}
+	var cfg config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		log.Fatalf("Failed to parse config file %s: %v", path, err)
+	}
+	return cfg
+}
+
+// writeConfig marshals cfg to YAML and writes it to path, creating the
+// parent directory if needed.
+func writeConfig(path string, cfg config) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
@@ -344,6 +398,8 @@ func main() {
 	listMonitors := flag.Bool("list-monitors", false, "list available monitors and exit")
 	timeout := flag.Int("timeout", 0, "what to do once the countdown hits zero: 0 closes immediately, a positive value keeps blinking for that many extra seconds then closes, -1 keeps blinking until interrupted")
 	scale := flag.Float64("scale", 1.0, "multiplier for the countdown's font size and box (e.g. 2 doubles it, 0.5 halves it)")
+	configPathFlag := flag.String("config", "", "path to a YAML config file with default flag values; defaults to ~/.config/countdown/config.yaml if present")
+	saveConfig := flag.Bool("save-config", false, "write the current settings (flags merged with any existing config) to the config file and exit")
 	var hours, mins, secs int
 	flag.IntVar(&hours, "hours", 0, "hours to count down (short: -h)")
 	flag.IntVar(&hours, "h", 0, "shorthand for -hours")
@@ -365,12 +421,77 @@ func main() {
 		return
 	}
 
+	// Fill in anything not explicitly passed on the command line from the
+	// config file, so flags always take priority over saved preferences.
+	setFlags := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
+
+	cfgPath := *configPathFlag
+	if cfgPath == "" {
+		if p, err := defaultConfigPath(); err == nil {
+			cfgPath = p
+		}
+	}
+	var cfg config
+	if cfgPath != "" {
+		cfg = loadConfig(cfgPath)
+	}
+
+	if !setFlags["corner"] && cfg.Corner != nil {
+		*corner = *cfg.Corner
+	}
+	if !setFlags["monitor"] && cfg.Monitor != nil {
+		*monitorIdx = *cfg.Monitor
+	}
+	if !setFlags["timeout"] && cfg.Timeout != nil {
+		*timeout = *cfg.Timeout
+	}
+	if !setFlags["scale"] && cfg.Scale != nil {
+		*scale = *cfg.Scale
+	}
+	if !setFlags["hours"] && !setFlags["h"] && cfg.Hours != nil {
+		hours = *cfg.Hours
+	}
+	if !setFlags["minutes"] && !setFlags["m"] && cfg.Minutes != nil {
+		mins = *cfg.Minutes
+	}
+	if !setFlags["seconds"] && !setFlags["s"] && cfg.Seconds != nil {
+		secs = *cfg.Seconds
+	}
+
 	if *corner != "" && !slices.Contains(validCorners, *corner) {
 		log.Fatalf("Invalid corner %q: must be one of %s", *corner, strings.Join(validCorners, ", "))
 	}
 
 	if *scale <= 0 {
 		log.Fatalf("Invalid scale %v: must be greater than 0", *scale)
+	}
+
+	if *saveConfig {
+		out := config{Timeout: timeout, Scale: scale}
+		if *corner != "" {
+			out.Corner = corner
+		}
+		if *monitorIdx >= 0 {
+			out.Monitor = monitorIdx
+		}
+		if hours > 0 {
+			out.Hours = &hours
+		}
+		if mins > 0 {
+			out.Minutes = &mins
+		}
+		if secs > 0 {
+			out.Seconds = &secs
+		}
+		if cfgPath == "" {
+			log.Fatal("Could not determine a config file path to save to; pass -config explicitly")
+		}
+		if err := writeConfig(cfgPath, out); err != nil {
+			log.Fatalf("Failed to write config file %s: %v", cfgPath, err)
+		}
+		fmt.Printf("Saved config to %s\n", cfgPath)
+		return
 	}
 
 	args := flag.Args()

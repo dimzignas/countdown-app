@@ -21,6 +21,8 @@ This is a simple countdown app built with Go and Ebiten. The application allows 
 - Uses an embedded font, so it doesn't depend on any particular
   distro having a specific font installed at a specific path.
 - Resizable via `-scale`, which scales the font and box together.
+- Reads defaults from a commented YAML config file, so you don't have
+  to repeat your preferred flags every time.
 
 ### Install and Compile with Make
 
@@ -90,4 +92,32 @@ Use `-scale` to resize the whole thing (font and box together):
 ```bash
 countdown -scale=2 10     # twice the size (default is 1)
 countdown -scale=0.5 10   # half the size
+```
+
+### Config file
+
+Rather than repeating flags every time, you can set defaults in a YAML
+config file at `~/.config/countdown/config.yaml` (or point elsewhere with
+`-config`). See [`config.example.yaml`](config.example.yaml) for every
+available option, commented out with its meaning. Any flag passed on the
+command line always overrides the config file; the config file overrides
+the app's built-in defaults; a missing config file is fine and just means
+built-in defaults apply.
+
+```bash
+mkdir -p ~/.config/countdown
+cp config.example.yaml ~/.config/countdown/config.yaml
+# edit it to your liking, then just run:
+countdown 10
+
+countdown -config=/path/to/other.yaml 10   # or use a different file
+```
+
+Or generate/update the config file from your current flags with
+`-save-config`, instead of hand-editing it. It merges onto whatever's
+already in the file, so passing just the flags you want to change is
+enough:
+
+```bash
+countdown -scale=1.5 -corner=top-left -timeout=-1 -save-config
 ```

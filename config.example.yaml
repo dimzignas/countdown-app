@@ -1,0 +1,25 @@
+# Example countdown config file.
+#
+# Copy this to ~/.config/countdown/config.yaml (or point -config at it
+# directly) to set your own defaults. Any flag passed on the command line
+# always overrides the value here; anything left commented out just falls
+# back to the app's built-in default.
+
+# Corner to place the window in: top-left, top-right, bottom-left, bottom-right.
+# corner: bottom-right
+
+# Index of the monitor to display on (0-based, see `countdown -list-monitors`).
+# monitor: 0
+
+# What happens once the countdown hits zero: 0 closes immediately, a
+# positive number keeps blinking for that many extra seconds then closes,
+# -1 keeps blinking until interrupted.
+# timeout: -1
+
+# Multiplier for the countdown's font size and box.
+# scale: 1.5
+
+# Default countdown length, if not overridden by flags/args at runtime.
+# hours: 0
+# minutes: 10
+# seconds: 0
