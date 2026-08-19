@@ -2,13 +2,16 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"image/color"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,10 +22,32 @@ import (
 	"golang.org/x/image/font/opentype"
 )
 
+// windowMargin is the gap kept between the window and the screen edge it's
+// anchored to, so the countdown isn't flush against the corner.
+const windowMargin = 20
+
 // windowState is persisted across runs so the overlay reopens where it was left.
 type windowState struct {
-	X int `json:"x"`
-	Y int `json:"y"`
+	X          int `json:"x"`
+	Y          int `json:"y"`
+	MonitorIdx int `json:"monitorIdx"`
+}
+
+var validCorners = []string{"top-left", "top-right", "bottom-left", "bottom-right"}
+
+// cornerPosition returns the top-left coordinates (relative to the target
+// monitor's origin) for placing a window of size windowWidth x windowHeight
+// in the given corner of a monitor of size screenWidth x screenHeight, with
+// windowMargin of breathing room from the edges.
+func cornerPosition(corner string, screenWidth, screenHeight, windowWidth, windowHeight int) (int, int) {
+	x, y := windowMargin, windowMargin
+	if strings.HasSuffix(corner, "right") {
+		x = screenWidth - windowWidth - windowMargin
+	}
+	if strings.HasPrefix(corner, "bottom") {
+		y = screenHeight - windowHeight - windowMargin
+	}
+	return x, y
 }
 
 func statePath() (string, error) {
@@ -49,7 +74,7 @@ func loadWindowState() (*windowState, bool) {
 	return &state, true
 }
 
-func saveWindowState(x, y int) error {
+func saveWindowState(x, y, monitorIdx int) error {
 	path, err := statePath()
 	if err != nil {
 		return err
@@ -57,7 +82,7 @@ func saveWindowState(x, y int) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.Marshal(windowState{X: x, Y: y})
+	data, err := json.Marshal(windowState{X: x, Y: y, MonitorIdx: monitorIdx})
 	if err != nil {
 		return err
 	}
@@ -71,9 +96,13 @@ type Game struct {
 	windowHeight  int
 	fontFace      font.Face
 	windowResized bool // To track if the window size has been set
+
+	corner             string // explicit corner requested via -corner, or "" to use saved/default
+	monitorIdx         int    // explicit monitor requested via -monitor, or -1 to use saved/default
+	resolvedMonitorIdx int    // the monitor index actually used, for persisting to state
 }
 
-func NewGame(minutes int, fontSize float64) *Game {
+func NewGame(minutes int, fontSize float64, corner string, monitorIdx int) *Game {
 	// Use the Go Bold font embedded in golang.org/x/image so we don't depend
 	// on any particular distro's font paths (e.g. DejaVu isn't guaranteed to
 	// live at a Debian-style path on Arch, or be installed at all).
@@ -91,12 +120,14 @@ func NewGame(minutes int, fontSize float64) *Game {
 	}
 
 	return &Game{
-		startTime:    time.Now(),
-		duration:     time.Duration(minutes) * time.Minute,
-		windowWidth:  800, // Initial window width (can adjust)
-		windowHeight: 200, // Initial window height (can adjust)
-		fontFace:     face,
+		startTime:     time.Now(),
+		duration:      time.Duration(minutes) * time.Minute,
+		windowWidth:   800, // Initial window width (can adjust)
+		windowHeight:  200, // Initial window height (can adjust)
+		fontFace:      face,
 		windowResized: false,
+		corner:        corner,
+		monitorIdx:    monitorIdx,
 	}
 }
 
@@ -110,14 +141,14 @@ func (g *Game) Update() error {
 	return nil
 }
 
-// savePosition persists the window's current position so the next run
-// can reopen in the same spot.
+// savePosition persists the window's current position and monitor so the
+// next run can reopen in the same spot.
 func (g *Game) savePosition() {
 	if !g.windowResized {
 		return
 	}
 	x, y := ebiten.WindowPosition()
-	if err := saveWindowState(x, y); err != nil {
+	if err := saveWindowState(x, y, g.resolvedMonitorIdx); err != nil {
 		log.Printf("Failed to save window position: %v", err)
 	}
 }
@@ -146,19 +177,47 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// Resize the window only once
 	if !g.windowResized {
 		// Resize the window to fit the text
-		g.windowWidth = textWidth + 40  // Add padding (20 on each side)
+		g.windowWidth = textWidth + 40   // Add padding (20 on each side)
 		g.windowHeight = textHeight + 40 // Add padding (20 on each side)
 
 		// Set the new window size
 		ebiten.SetWindowSize(g.windowWidth, g.windowHeight)
 
-		if state, ok := loadWindowState(); ok {
+		state, hasState := loadWindowState()
+		explicit := g.corner != "" || g.monitorIdx >= 0
+
+		monitors := ebiten.AppendMonitors(nil)
+		monitor := ebiten.Monitor() // defaults to the current monitor
+		monitorIdx := 0
+		for i, m := range monitors {
+			if m == monitor {
+				monitorIdx = i
+				break
+			}
+		}
+		if g.monitorIdx >= 0 && g.monitorIdx < len(monitors) {
+			monitorIdx = g.monitorIdx
+			monitor = monitors[monitorIdx]
+		} else if !explicit && hasState && state.MonitorIdx < len(monitors) {
+			monitorIdx = state.MonitorIdx
+			monitor = monitors[monitorIdx]
+		}
+		ebiten.SetMonitor(monitor)
+		g.resolvedMonitorIdx = monitorIdx
+
+		if !explicit && hasState {
 			// Restore the last known position.
 			ebiten.SetWindowPosition(state.X, state.Y)
 		} else {
-			// No saved position yet: default to the bottom-right corner.
-			screenWidth, screenHeight := ebiten.Monitor().Size()
-			ebiten.SetWindowPosition(screenWidth-g.windowWidth-10, screenHeight-g.windowHeight-10) // 10px margin from bottom-right corner
+			// Fresh placement: use the requested corner, defaulting to
+			// bottom-right, with a small margin from the screen edge.
+			corner := g.corner
+			if corner == "" {
+				corner = "bottom-right"
+			}
+			screenWidth, screenHeight := monitor.Size()
+			x, y := cornerPosition(corner, screenWidth, screenHeight, g.windowWidth, g.windowHeight)
+			ebiten.SetWindowPosition(x, y)
 		}
 
 		// Mark the window as resized
@@ -167,7 +226,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Position for the text (centered horizontally and vertically)
 	x := (g.windowWidth - textWidth) / 2
-	y := (g.windowHeight - textHeight) / 2 + 20
+	y := (g.windowHeight-textHeight)/2 + 20
 
 	// Draw the text on the screen
 	text.Draw(screen, countdownText, g.fontFace, x, y, color.RGBA{255, 0, 0, 255})
@@ -179,22 +238,44 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func main() {
-	// Get the minutes argument from the command line
-	if len(os.Args) != 2 {
-		log.Fatalf("Usage: %s <minutes>", os.Args[0])
+	corner := flag.String("corner", "", fmt.Sprintf("corner to place the window in (%s); defaults to the last remembered position, or bottom-right on first run", strings.Join(validCorners, ", ")))
+	monitorIdx := flag.Int("monitor", -1, "index of the monitor to display on (0-based, as listed by -list-monitors); defaults to the last remembered monitor, or the current one on first run")
+	listMonitors := flag.Bool("list-monitors", false, "list available monitors and exit")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [flags] <minutes>\n\nFlags:\n", os.Args[0])
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+
+	if *listMonitors {
+		for i, m := range ebiten.AppendMonitors(nil) {
+			w, h := m.Size()
+			fmt.Printf("%d: %s (%dx%d)\n", i, m.Name(), w, h)
+		}
+		return
+	}
+
+	if *corner != "" && !slices.Contains(validCorners, *corner) {
+		log.Fatalf("Invalid corner %q: must be one of %s", *corner, strings.Join(validCorners, ", "))
+	}
+
+	args := flag.Args()
+	if len(args) != 1 {
+		flag.Usage()
+		os.Exit(1)
 	}
 
 	// Convert the argument to an integer
-	minutes, err := strconv.Atoi(os.Args[1])
+	minutes, err := strconv.Atoi(args[0])
 	if err != nil || minutes <= 0 {
-		log.Fatalf("Invalid minutes: %s", os.Args[1])
+		log.Fatalf("Invalid minutes: %s", args[0])
 	}
 
 	// Set a larger font size for better readability
 	fontSize := 30.0
 
 	// Create a new game instance
-	game := NewGame(minutes, fontSize)
+	game := NewGame(minutes, fontSize, *corner, *monitorIdx)
 
 	// Save the window position if the process is interrupted before the
 	// countdown finishes naturally (e.g. Ctrl+C).

@@ -29,10 +29,23 @@ make install
 
 ## Usage
 
-put the desired minutes for the countdown as the first argument
+put the desired minutes for the countdown as the last argument
 
 ```bash
 countdown minutes
 countdown 10
 countdown 160
 ```
+
+The window remembers its last position and monitor between runs
+(saved to `~/.config/countdown/state.json`). On first run it defaults
+to the bottom-right corner of the current monitor.
+
+```bash
+countdown -list-monitors          # list available monitors and their index
+countdown -corner=top-left 10     # place in a specific corner
+countdown -monitor=1 10           # place on a specific monitor
+countdown -corner=top-left -monitor=1 10
+```
+
+Valid corners: `top-left`, `top-right`, `bottom-left`, `bottom-right`.
