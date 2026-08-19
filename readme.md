@@ -37,6 +37,19 @@ Install the app already build and present here:
 make install
 ```
 
+### Windows
+
+The app cross-compiles to Windows with no extra setup (ebiten's desktop
+backend is pure Go, no cgo/C toolchain needed):
+
+```bash
+make build-windows    # produces countdown.exe
+```
+
+This is cross-compiled from Linux and hasn't been run/tested on an
+actual Windows machine, so treat window transparency/decoration/mouse
+passthrough behavior there as unverified.
+
 ## Usage
 
 Run `countdown --help` (or `-help`) at any time to see the full flag

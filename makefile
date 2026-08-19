@@ -25,11 +25,20 @@ install: build
 	cp $(APP_NAME) $(BINARY_DIR)/$(APP_NAME)
 	@echo "$(APP_NAME) installed to $(BINARY_DIR)"
 
+# Cross-compile a Windows binary (no cgo needed, ebiten's desktop backend
+# is pure Go). -H=windowsgui suppresses the console window that would
+# otherwise pop up alongside the overlay.
+.PHONY: build-windows
+build-windows:
+	@echo "Building $(APP_NAME).exe for Windows..."
+	$(GO) mod tidy
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 $(GO) build -ldflags="-s -w -H=windowsgui" -o $(APP_NAME).exe main.go
+
 # Clean up build artifacts
 .PHONY: clean
 clean:
 	@echo "Cleaning up..."
-	rm -f $(APP_NAME)
+	rm -f $(APP_NAME) $(APP_NAME).exe
 
 # Uninstall the binary from the local bin directory
 .PHONY: uninstall
