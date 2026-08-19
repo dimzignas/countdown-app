@@ -109,7 +109,7 @@ type Game struct {
 	zeroAt  time.Time // when the countdown first hit zero; zero value means it hasn't yet
 }
 
-func NewGame(minutes int, fontSize float64, corner string, monitorIdx, timeout int) *Game {
+func NewGame(duration time.Duration, fontSize float64, corner string, monitorIdx, timeout int) *Game {
 	// Use the Go Bold font embedded in golang.org/x/image so we don't depend
 	// on any particular distro's font paths (e.g. DejaVu isn't guaranteed to
 	// live at a Debian-style path on Arch, or be installed at all).
@@ -128,7 +128,7 @@ func NewGame(minutes int, fontSize float64, corner string, monitorIdx, timeout i
 
 	return &Game{
 		startTime:     time.Now(),
-		duration:      time.Duration(minutes) * time.Minute,
+		duration:      duration,
 		windowWidth:   800, // Initial window width (can adjust)
 		windowHeight:  200, // Initial window height (can adjust)
 		fontFace:      face,
@@ -291,8 +291,15 @@ func main() {
 	monitorIdx := flag.Int("monitor", -1, "index of the monitor to display on (0-based, as listed by -list-monitors); defaults to the last remembered monitor, or the current one on first run")
 	listMonitors := flag.Bool("list-monitors", false, "list available monitors and exit")
 	timeout := flag.Int("timeout", 0, "what to do once the countdown hits zero: 0 closes immediately, a positive value keeps blinking for that many extra seconds then closes, -1 keeps blinking until interrupted")
+	var hours, mins, secs int
+	flag.IntVar(&hours, "hours", 0, "hours to count down (short: -h)")
+	flag.IntVar(&hours, "h", 0, "shorthand for -hours")
+	flag.IntVar(&mins, "minutes", 0, "minutes to count down (short: -m)")
+	flag.IntVar(&mins, "m", 0, "shorthand for -minutes")
+	flag.IntVar(&secs, "seconds", 0, "seconds to count down (short: -s)")
+	flag.IntVar(&secs, "s", 0, "shorthand for -seconds")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [flags] <minutes>\n\nFlags:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [flags] [minutes]\n\nEither pass the countdown length as a plain number of minutes, or\nspecify it with -hours/-minutes/-seconds (or -h/-m/-s), combinable,\ne.g. -h 1 -m 30. Note -h means hours here, not help; use --help for usage.\n\nFlags:\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -310,22 +317,29 @@ func main() {
 	}
 
 	args := flag.Args()
-	if len(args) != 1 {
+	flagDuration := time.Duration(hours)*time.Hour + time.Duration(mins)*time.Minute + time.Duration(secs)*time.Second
+
+	var duration time.Duration
+	switch {
+	case flagDuration > 0 && len(args) == 0:
+		duration = flagDuration
+	case flagDuration == 0 && len(args) == 1:
+		// Backward-compatible plain-minutes form.
+		minutes, err := strconv.Atoi(args[0])
+		if err != nil || minutes <= 0 {
+			log.Fatalf("Invalid minutes: %s", args[0])
+		}
+		duration = time.Duration(minutes) * time.Minute
+	default:
 		flag.Usage()
 		os.Exit(1)
-	}
-
-	// Convert the argument to an integer
-	minutes, err := strconv.Atoi(args[0])
-	if err != nil || minutes <= 0 {
-		log.Fatalf("Invalid minutes: %s", args[0])
 	}
 
 	// Set a larger font size for better readability
 	fontSize := 30.0
 
 	// Create a new game instance
-	game := NewGame(minutes, fontSize, *corner, *monitorIdx, *timeout)
+	game := NewGame(duration, fontSize, *corner, *monitorIdx, *timeout)
 
 	// Save the window position if the process is interrupted before the
 	// countdown finishes naturally (e.g. Ctrl+C).

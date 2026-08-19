@@ -37,6 +37,17 @@ countdown 10
 countdown 160
 ```
 
+Or specify hours/minutes/seconds explicitly with `-hours`/`-minutes`/`-seconds`
+(short forms `-h`/`-m`/`-s`), combinable, and instead of the plain-minutes
+argument above:
+
+```bash
+countdown -h 1 -m 30       # 1 hour 30 minutes
+countdown -m 5             # 5 minutes
+countdown -s 90            # 90 seconds
+countdown --seconds=45     # double-dash works too
+```
+
 The window remembers its last position and monitor between runs
 (saved to `~/.config/countdown/state.json`). On first run it defaults
 to the bottom-right corner of the current monitor.
