@@ -153,6 +153,25 @@ func (g *Game) savePosition() {
 	}
 }
 
+// urgentThreshold is the point at which the countdown starts shifting from
+// yellow to red as it approaches zero.
+const urgentThreshold = 30 * time.Second
+
+// textColor picks the countdown's color: a dim white/gray normally, and a
+// yellow-to-red gradient that intensifies as the remaining time approaches
+// zero once under urgentThreshold.
+func textColor(remaining time.Duration) color.RGBA {
+	if remaining > urgentThreshold {
+		return color.RGBA{200, 200, 200, 200} // dim
+	}
+	t := float64(remaining) / float64(urgentThreshold) // 1 -> just crossed threshold, 0 -> zero
+	if t < 0 {
+		t = 0
+	}
+	green := uint8(255 * t) // yellow (255,255,0) fading to red (255,0,0)
+	return color.RGBA{255, green, 0, 255}
+}
+
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Clear the screen with transparency (or custom color for debugging)
 	screen.Fill(color.RGBA{0, 0, 0, 0})
@@ -229,7 +248,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	y := (g.windowHeight-textHeight)/2 + 20
 
 	// Draw the text on the screen
-	text.Draw(screen, countdownText, g.fontFace, x, y, color.RGBA{255, 0, 0, 255})
+	text.Draw(screen, countdownText, g.fontFace, x, y, textColor(remaining))
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
