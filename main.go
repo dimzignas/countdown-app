@@ -101,6 +101,16 @@ type Game struct {
 	monitorIdx         int    // explicit monitor requested via -monitor, or -1 to use saved/default
 	resolvedMonitorIdx int    // the monitor index actually used, for persisting to state
 
+	// Placement happens in two steps, one frame apart: switching monitor
+	// (via ebiten.SetMonitor) is asynchronous under tiling WMs like i3,
+	// which need a moment to actually move the window before
+	// ebiten.SetWindowPosition's "relative to the current monitor"
+	// coordinates resolve against the right monitor.
+	monitorSwitched bool
+	monitorSwitchAt time.Time
+	pendingX        int
+	pendingY        int
+
 	// timeout controls what happens once the countdown hits zero:
 	//   0  -> close immediately
 	//   <0 -> stay open (still blinking) until interrupted
@@ -229,8 +239,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	textWidth := (bounds.Max.X - bounds.Min.X).Ceil()
 	textHeight := (bounds.Max.Y - bounds.Min.Y).Ceil()
 
-	// Resize the window only once
-	if !g.windowResized {
+	// Size and place the window only once, in two steps a frame or more
+	// apart (see monitorSwitched's doc comment on Game).
+	switch {
+	case g.windowResized:
+		// Already done.
+	case !g.monitorSwitched:
 		// Size the window to fit the widest text it could ever show: if
 		// the window can stay open past zero (timeout != 0), that's the
 		// "-HH:MM:SS" overtime form, one character wider than "HH:MM:SS".
@@ -253,7 +267,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		explicit := g.corner != "" || g.monitorIdx >= 0
 
 		monitors := ebiten.AppendMonitors(nil)
-		monitor := ebiten.Monitor() // defaults to the current monitor
+		current := ebiten.Monitor() // defaults to the current monitor
+		monitor := current
 		monitorIdx := 0
 		for i, m := range monitors {
 			if m == monitor {
@@ -268,12 +283,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			monitorIdx = state.MonitorIdx
 			monitor = monitors[monitorIdx]
 		}
-		ebiten.SetMonitor(monitor)
 		g.resolvedMonitorIdx = monitorIdx
 
 		if !explicit && hasState {
-			// Restore the last known position.
-			ebiten.SetWindowPosition(state.X, state.Y)
+			g.pendingX, g.pendingY = state.X, state.Y
 		} else {
 			// Fresh placement: use the requested corner, defaulting to
 			// bottom-right, with a small margin from the screen edge.
@@ -282,11 +295,25 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				corner = "bottom-right"
 			}
 			screenWidth, screenHeight := monitor.Size()
-			x, y := cornerPosition(corner, screenWidth, screenHeight, g.windowWidth, g.windowHeight)
-			ebiten.SetWindowPosition(x, y)
+			g.pendingX, g.pendingY = cornerPosition(corner, screenWidth, screenHeight, g.windowWidth, g.windowHeight)
 		}
 
-		// Mark the window as resized
+		if monitor != current {
+			// Actually switching monitors: under tiling WMs (e.g. i3) the
+			// move is asynchronous, so defer setting the position until
+			// a later frame once the window has actually landed on the
+			// target monitor - otherwise SetWindowPosition below would
+			// resolve "current monitor" to the old one and place the
+			// window there instead.
+			ebiten.SetMonitor(monitor)
+			g.monitorSwitchAt = time.Now()
+		} else {
+			ebiten.SetWindowPosition(g.pendingX, g.pendingY)
+			g.windowResized = true
+		}
+		g.monitorSwitched = true
+	case time.Since(g.monitorSwitchAt) >= 150*time.Millisecond:
+		ebiten.SetWindowPosition(g.pendingX, g.pendingY)
 		g.windowResized = true
 	}
 
