@@ -20,6 +20,7 @@ This is a simple countdown app built with Go and Ebiten. The application allows 
   interrupted.
 - Uses an embedded font, so it doesn't depend on any particular
   distro having a specific font installed at a specific path.
+- Resizable via `-scale`, which scales the font and box together.
 
 ### Install and Compile with Make
 
@@ -83,3 +84,10 @@ countdown -timeout=-1 10   # keep blinking until interrupted (Ctrl+C)
 Whenever `-timeout` is non-zero, once the countdown hits zero it starts
 counting back up instead, shown as `-HH:MM:SS` (e.g. `-00:00:12`), so
 you can see how long it's been since time ran out.
+
+Use `-scale` to resize the whole thing (font and box together):
+
+```bash
+countdown -scale=2 10     # twice the size (default is 1)
+countdown -scale=0.5 10   # half the size
+```

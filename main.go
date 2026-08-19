@@ -97,9 +97,10 @@ type Game struct {
 	fontFace      font.Face
 	windowResized bool // To track if the window size has been set
 
-	corner             string // explicit corner requested via -corner, or "" to use saved/default
-	monitorIdx         int    // explicit monitor requested via -monitor, or -1 to use saved/default
-	resolvedMonitorIdx int    // the monitor index actually used, for persisting to state
+	corner             string  // explicit corner requested via -corner, or "" to use saved/default
+	monitorIdx         int     // explicit monitor requested via -monitor, or -1 to use saved/default
+	resolvedMonitorIdx int     // the monitor index actually used, for persisting to state
+	scale              float64 // multiplier applied to font size and padding, via -scale
 
 	// Placement happens in two steps, one frame apart: switching monitor
 	// (via ebiten.SetMonitor) is asynchronous under tiling WMs like i3,
@@ -119,7 +120,7 @@ type Game struct {
 	zeroAt  time.Time // when the countdown first hit zero; zero value means it hasn't yet
 }
 
-func NewGame(duration time.Duration, fontSize float64, corner string, monitorIdx, timeout int) *Game {
+func NewGame(duration time.Duration, fontSize float64, corner string, monitorIdx, timeout int, scale float64) *Game {
 	// Use the Go Bold font embedded in golang.org/x/image so we don't depend
 	// on any particular distro's font paths (e.g. DejaVu isn't guaranteed to
 	// live at a Debian-style path on Arch, or be installed at all).
@@ -146,6 +147,7 @@ func NewGame(duration time.Duration, fontSize float64, corner string, monitorIdx
 		corner:        corner,
 		monitorIdx:    monitorIdx,
 		timeout:       timeout,
+		scale:         scale,
 	}
 }
 
@@ -256,9 +258,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		sizingWidth := (sizingBounds.Max.X - sizingBounds.Min.X).Ceil()
 		sizingHeight := (sizingBounds.Max.Y - sizingBounds.Min.Y).Ceil()
 
-		// Resize the window to fit the text
-		g.windowWidth = sizingWidth + 40   // Add padding (20 on each side)
-		g.windowHeight = sizingHeight + 40 // Add padding (20 on each side)
+		// Resize the window to fit the text, with padding that scales
+		// alongside the font so the box stays proportional at any -scale.
+		padding := int(40 * g.scale)
+		g.windowWidth = sizingWidth + padding
+		g.windowHeight = sizingHeight + padding
 
 		// Set the new window size
 		ebiten.SetWindowSize(g.windowWidth, g.windowHeight)
@@ -319,7 +323,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Position for the text (centered horizontally and vertically)
 	x := (g.windowWidth - textWidth) / 2
-	y := (g.windowHeight-textHeight)/2 + 20
+	y := (g.windowHeight-textHeight)/2 + int(20*g.scale)
 
 	// Draw the text on the screen
 	colorRemaining := remaining
@@ -339,6 +343,7 @@ func main() {
 	monitorIdx := flag.Int("monitor", -1, "index of the monitor to display on (0-based, as listed by -list-monitors); defaults to the last remembered monitor, or the current one on first run")
 	listMonitors := flag.Bool("list-monitors", false, "list available monitors and exit")
 	timeout := flag.Int("timeout", 0, "what to do once the countdown hits zero: 0 closes immediately, a positive value keeps blinking for that many extra seconds then closes, -1 keeps blinking until interrupted")
+	scale := flag.Float64("scale", 1.0, "multiplier for the countdown's font size and box (e.g. 2 doubles it, 0.5 halves it)")
 	var hours, mins, secs int
 	flag.IntVar(&hours, "hours", 0, "hours to count down (short: -h)")
 	flag.IntVar(&hours, "h", 0, "shorthand for -hours")
@@ -364,6 +369,10 @@ func main() {
 		log.Fatalf("Invalid corner %q: must be one of %s", *corner, strings.Join(validCorners, ", "))
 	}
 
+	if *scale <= 0 {
+		log.Fatalf("Invalid scale %v: must be greater than 0", *scale)
+	}
+
 	args := flag.Args()
 	flagDuration := time.Duration(hours)*time.Hour + time.Duration(mins)*time.Minute + time.Duration(secs)*time.Second
 
@@ -383,11 +392,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set a larger font size for better readability
-	fontSize := 30.0
+	// Set a larger font size for better readability, scaled by -scale
+	fontSize := 30.0 * *scale
 
 	// Create a new game instance
-	game := NewGame(duration, fontSize, *corner, *monitorIdx, *timeout)
+	game := NewGame(duration, fontSize, *corner, *monitorIdx, *timeout, *scale)
 
 	// Save the window position if the process is interrupted before the
 	// countdown finishes naturally (e.g. Ctrl+C).
