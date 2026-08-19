@@ -153,23 +153,28 @@ func (g *Game) savePosition() {
 	}
 }
 
-// urgentThreshold is the point at which the countdown starts shifting from
-// yellow to red as it approaches zero.
+// urgentThreshold is the point at which the countdown starts blinking
+// yellow/red as it approaches zero.
 const urgentThreshold = 30 * time.Second
 
-// textColor picks the countdown's color: a dim white/gray normally, and a
-// yellow-to-red gradient that intensifies as the remaining time approaches
-// zero once under urgentThreshold.
+// blinkInterval is how long each color is shown for while blinking.
+const blinkInterval = 500 * time.Millisecond
+
+var (
+	colorRed    = color.RGBA{255, 0, 0, 255}
+	colorYellow = color.RGBA{255, 255, 0, 255}
+)
+
+// textColor picks the countdown's color: red normally, blinking between
+// yellow and red once under urgentThreshold.
 func textColor(remaining time.Duration) color.RGBA {
 	if remaining > urgentThreshold {
-		return color.RGBA{200, 200, 200, 200} // dim
+		return colorRed
 	}
-	t := float64(remaining) / float64(urgentThreshold) // 1 -> just crossed threshold, 0 -> zero
-	if t < 0 {
-		t = 0
+	if (time.Now().UnixMilli()/blinkInterval.Milliseconds())%2 == 0 {
+		return colorYellow
 	}
-	green := uint8(255 * t) // yellow (255,255,0) fading to red (255,0,0)
-	return color.RGBA{255, green, 0, 255}
+	return colorRed
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
