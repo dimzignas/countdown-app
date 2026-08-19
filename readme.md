@@ -8,11 +8,18 @@ This is a simple countdown app built with Go and Ebiten. The application allows 
 
 ![Example](screenshot.png)
 
-- Set a countdown timer in minutes.
+- Set a countdown timer in minutes, or in hours/minutes/seconds.
 - Displays the remaining time in hours, minutes, and seconds.
+- Blinks yellow/red once under 30 seconds remain, for a clear urgency cue.
 - A transparent window with minimal UI, ideal for overlay use.
 - The application is windowless (no borders, no title bar).
-- Once the countdown is complete, the app will automatically exit.
+- Place the window in a specific corner and/or on a specific monitor.
+- Remembers its last position and monitor between runs.
+- Control what happens once it hits zero: close immediately, keep
+  blinking for a set number of extra seconds, or keep blinking until
+  interrupted.
+- Uses an embedded font, so it doesn't depend on any particular
+  distro having a specific font installed at a specific path.
 
 ### Install and Compile with Make
 
@@ -28,6 +35,9 @@ make install
 ```
 
 ## Usage
+
+Run `countdown --help` (or `-help`) at any time to see the full flag
+reference. Note `-h` is the shorthand for `-hours`, not help.
 
 put the desired minutes for the countdown as the last argument
 
