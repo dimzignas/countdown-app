@@ -79,3 +79,7 @@ countdown -timeout=0 10    # close immediately at zero (default)
 countdown -timeout=30 10   # keep blinking for 30 more seconds, then close
 countdown -timeout=-1 10   # keep blinking until interrupted (Ctrl+C)
 ```
+
+Whenever `-timeout` is non-zero, once the countdown hits zero it starts
+counting back up instead, shown as `-HH:MM:SS` (e.g. `-00:00:12`), so
+you can see how long it's been since time ran out.

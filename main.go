@@ -206,17 +206,23 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// Clear the screen with transparency (or custom color for debugging)
 	screen.Fill(color.RGBA{0, 0, 0, 0})
 
-	// Calculate the remaining time
-	remaining := g.duration - time.Since(g.startTime)
-	if remaining < 0 {
-		remaining = 0
-	}
-	hours := int(remaining.Hours())
-	minutes := int(remaining.Minutes()) % 60
-	seconds := int(remaining.Seconds()) % 60
+	// Calculate the remaining time. Once it hits zero, if the window is
+	// staying open past the countdown (timeout != 0), count back up from
+	// zero instead, prefixed with "-" to show it's overtime.
+	elapsed := time.Since(g.startTime)
+	remaining := g.duration - elapsed
+	countingUp := remaining <= 0 && g.timeout != 0
 
-	// Format the countdown timer
-	countdownText := fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+	var countdownText string
+	if countingUp {
+		overtime := elapsed - g.duration
+		countdownText = fmt.Sprintf("-%02d:%02d:%02d", int(overtime.Hours()), int(overtime.Minutes())%60, int(overtime.Seconds())%60)
+	} else {
+		if remaining < 0 {
+			remaining = 0
+		}
+		countdownText = fmt.Sprintf("%02d:%02d:%02d", int(remaining.Hours()), int(remaining.Minutes())%60, int(remaining.Seconds())%60)
+	}
 
 	// Measure text dimensions to position correctly
 	bounds, _ := font.BoundString(g.fontFace, countdownText)
@@ -225,9 +231,20 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Resize the window only once
 	if !g.windowResized {
+		// Size the window to fit the widest text it could ever show: if
+		// the window can stay open past zero (timeout != 0), that's the
+		// "-HH:MM:SS" overtime form, one character wider than "HH:MM:SS".
+		sizingText := countdownText
+		if g.timeout != 0 && !countingUp {
+			sizingText = "-" + countdownText
+		}
+		sizingBounds, _ := font.BoundString(g.fontFace, sizingText)
+		sizingWidth := (sizingBounds.Max.X - sizingBounds.Min.X).Ceil()
+		sizingHeight := (sizingBounds.Max.Y - sizingBounds.Min.Y).Ceil()
+
 		// Resize the window to fit the text
-		g.windowWidth = textWidth + 40   // Add padding (20 on each side)
-		g.windowHeight = textHeight + 40 // Add padding (20 on each side)
+		g.windowWidth = sizingWidth + 40   // Add padding (20 on each side)
+		g.windowHeight = sizingHeight + 40 // Add padding (20 on each side)
 
 		// Set the new window size
 		ebiten.SetWindowSize(g.windowWidth, g.windowHeight)
@@ -278,7 +295,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	y := (g.windowHeight-textHeight)/2 + 20
 
 	// Draw the text on the screen
-	text.Draw(screen, countdownText, g.fontFace, x, y, textColor(remaining))
+	colorRemaining := remaining
+	if colorRemaining < 0 {
+		colorRemaining = 0
+	}
+	text.Draw(screen, countdownText, g.fontFace, x, y, textColor(colorRemaining))
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
