@@ -1,18 +1,68 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"log"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"golang.org/x/image/font"
+	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/opentype"
 )
+
+// windowState is persisted across runs so the overlay reopens where it was left.
+type windowState struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
+func statePath() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "countdown", "state.json"), nil
+}
+
+func loadWindowState() (*windowState, bool) {
+	path, err := statePath()
+	if err != nil {
+		return nil, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	var state windowState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, false
+	}
+	return &state, true
+}
+
+func saveWindowState(x, y int) error {
+	path, err := statePath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(windowState{X: x, Y: y})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
 
 type Game struct {
 	startTime     time.Time
@@ -24,12 +74,10 @@ type Game struct {
 }
 
 func NewGame(minutes int, fontSize float64) *Game {
-	// Load a system font (or embedded font) using opentype
-	fontData, err := os.ReadFile("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf") // Example font
-	if err != nil {
-		log.Fatalf("Failed to load font: %v", err)
-	}
-	tt, err := opentype.Parse(fontData)
+	// Use the Go Bold font embedded in golang.org/x/image so we don't depend
+	// on any particular distro's font paths (e.g. DejaVu isn't guaranteed to
+	// live at a Debian-style path on Arch, or be installed at all).
+	tt, err := opentype.Parse(gobold.TTF)
 	if err != nil {
 		log.Fatalf("Failed to parse font: %v", err)
 	}
@@ -56,9 +104,22 @@ func (g *Game) Update() error {
 	// Exit the game if the countdown is over
 	if time.Since(g.startTime) >= g.duration {
 		fmt.Println("Countdown complete!")
+		g.savePosition()
 		return ebiten.Termination
 	}
 	return nil
+}
+
+// savePosition persists the window's current position so the next run
+// can reopen in the same spot.
+func (g *Game) savePosition() {
+	if !g.windowResized {
+		return
+	}
+	x, y := ebiten.WindowPosition()
+	if err := saveWindowState(x, y); err != nil {
+		log.Printf("Failed to save window position: %v", err)
+	}
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -91,9 +152,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		// Set the new window size
 		ebiten.SetWindowSize(g.windowWidth, g.windowHeight)
 
-		// Set the window position to the bottom-right corner
-		screenWidth, screenHeight := ebiten.Monitor().Size()
-		ebiten.SetWindowPosition(screenWidth-g.windowWidth-10, screenHeight-g.windowHeight-10) // 10px margin from bottom-right corner
+		if state, ok := loadWindowState(); ok {
+			// Restore the last known position.
+			ebiten.SetWindowPosition(state.X, state.Y)
+		} else {
+			// No saved position yet: default to the bottom-right corner.
+			screenWidth, screenHeight := ebiten.Monitor().Size()
+			ebiten.SetWindowPosition(screenWidth-g.windowWidth-10, screenHeight-g.windowHeight-10) // 10px margin from bottom-right corner
+		}
 
 		// Mark the window as resized
 		g.windowResized = true
@@ -129,6 +195,16 @@ func main() {
 
 	// Create a new game instance
 	game := NewGame(minutes, fontSize)
+
+	// Save the window position if the process is interrupted before the
+	// countdown finishes naturally (e.g. Ctrl+C).
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		game.savePosition()
+		os.Exit(0)
+	}()
 
 	// Set up the Ebiten window
 	ebiten.SetWindowTitle("Countdown Overlay")
