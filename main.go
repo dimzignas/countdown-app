@@ -503,18 +503,29 @@ func main() {
 
 	args := flag.Args()
 	flagDuration := time.Duration(hours)*time.Hour + time.Duration(mins)*time.Minute + time.Duration(secs)*time.Second
+	// Only treat hours/minutes/seconds as explicitly given if passed on the
+	// command line, not merged in from the config file - otherwise a
+	// config-sourced default duration would collide with a plain-minutes
+	// positional arg, which should just override it.
+	cliDurationGiven := setFlags["hours"] || setFlags["h"] || setFlags["minutes"] || setFlags["m"] || setFlags["seconds"] || setFlags["s"]
 
 	var duration time.Duration
 	switch {
-	case flagDuration > 0 && len(args) == 0:
-		duration = flagDuration
-	case flagDuration == 0 && len(args) == 1:
-		// Backward-compatible plain-minutes form.
+	case cliDurationGiven && len(args) > 0:
+		// Ambiguous: both an explicit CLI duration flag and a positional
+		// minutes argument were given.
+		flag.Usage()
+		os.Exit(1)
+	case len(args) == 1:
+		// Backward-compatible plain-minutes form; overrides any
+		// config-sourced hours/minutes/seconds.
 		minutes, err := strconv.Atoi(args[0])
 		if err != nil || minutes <= 0 {
 			log.Fatalf("Invalid minutes: %s", args[0])
 		}
 		duration = time.Duration(minutes) * time.Minute
+	case flagDuration > 0 && len(args) == 0:
+		duration = flagDuration
 	default:
 		flag.Usage()
 		os.Exit(1)
