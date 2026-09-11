@@ -378,9 +378,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.windowResized = true
 	}
 
-	// Position for the text (centered horizontally and vertically)
-	x := (g.windowWidth - textWidth) / 2
-	y := (g.windowHeight-textHeight)/2 + int(20*g.scale)
+	// Position for the text (centered horizontally and vertically). Ebiten's
+	// text.Draw treats (x, y) as the text's baseline origin, not its
+	// top-left corner, so we offset by the bounds' own origin (bounds.Min)
+	// to actually center the ink itself.
+	x := (g.windowWidth-textWidth)/2 - bounds.Min.X.Ceil()
+	y := (g.windowHeight-textHeight)/2 - bounds.Min.Y.Ceil()
 
 	// Draw the text on the screen
 	colorRemaining := remaining
