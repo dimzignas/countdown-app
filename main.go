@@ -98,6 +98,7 @@ type config struct {
 	Monitor *int     `yaml:"monitor,omitempty"`
 	Timeout *int     `yaml:"timeout,omitempty"`
 	Scale   *float64 `yaml:"scale,omitempty"`
+	Padding *int     `yaml:"padding,omitempty"`
 	Hours   *int     `yaml:"hours,omitempty"`
 	Minutes *int     `yaml:"minutes,omitempty"`
 	Seconds *int     `yaml:"seconds,omitempty"`
@@ -155,6 +156,7 @@ type Game struct {
 	monitorIdx         int     // explicit monitor requested via -monitor, or -1 to use saved/default
 	resolvedMonitorIdx int     // the monitor index actually used, for persisting to state
 	scale              float64 // multiplier applied to font size and padding, via -scale
+	padding            int     // base padding in pixels, before -scale, via -padding
 
 	// Placement happens in two steps, one frame apart: switching monitor
 	// (via ebiten.SetMonitor) is asynchronous under tiling WMs like i3,
@@ -174,7 +176,7 @@ type Game struct {
 	zeroAt  time.Time // when the countdown first hit zero; zero value means it hasn't yet
 }
 
-func NewGame(duration time.Duration, fontSize float64, corner string, monitorIdx, timeout int, scale float64) *Game {
+func NewGame(duration time.Duration, fontSize float64, corner string, monitorIdx, timeout int, scale float64, padding int) *Game {
 	// Use the Go Bold font embedded in golang.org/x/image so we don't depend
 	// on any particular distro's font paths (e.g. DejaVu isn't guaranteed to
 	// live at a Debian-style path on Arch, or be installed at all).
@@ -202,6 +204,7 @@ func NewGame(duration time.Duration, fontSize float64, corner string, monitorIdx
 		monitorIdx:    monitorIdx,
 		timeout:       timeout,
 		scale:         scale,
+		padding:       padding,
 	}
 }
 
@@ -314,7 +317,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 		// Resize the window to fit the text, with padding that scales
 		// alongside the font so the box stays proportional at any -scale.
-		padding := int(40 * g.scale)
+		padding := int(float64(g.padding) * g.scale)
 		g.windowWidth = sizingWidth + padding
 		g.windowHeight = sizingHeight + padding
 
@@ -398,6 +401,7 @@ func main() {
 	listMonitors := flag.Bool("list-monitors", false, "list available monitors and exit")
 	timeout := flag.Int("timeout", 0, "what to do once the countdown hits zero: 0 closes immediately, a positive value keeps blinking for that many extra seconds then closes, -1 keeps blinking until interrupted")
 	scale := flag.Float64("scale", 1.0, "multiplier for the countdown's font size and box (e.g. 2 doubles it, 0.5 halves it)")
+	padding := flag.Int("padding", 30, "base padding in pixels around the text, before -scale is applied")
 	configPathFlag := flag.String("config", "", "path to a YAML config file with default flag values; defaults to ~/.config/countdown/config.yaml if present")
 	saveConfig := flag.Bool("save-config", false, "write the current settings (flags merged with any existing config) to the config file and exit")
 	var hours, mins, secs int
@@ -449,6 +453,9 @@ func main() {
 	if !setFlags["scale"] && cfg.Scale != nil {
 		*scale = *cfg.Scale
 	}
+	if !setFlags["padding"] && cfg.Padding != nil {
+		*padding = *cfg.Padding
+	}
 	if !setFlags["hours"] && !setFlags["h"] && cfg.Hours != nil {
 		hours = *cfg.Hours
 	}
@@ -468,7 +475,7 @@ func main() {
 	}
 
 	if *saveConfig {
-		out := config{Timeout: timeout, Scale: scale}
+		out := config{Timeout: timeout, Scale: scale, Padding: padding}
 		if *corner != "" {
 			out.Corner = corner
 		}
@@ -517,7 +524,7 @@ func main() {
 	fontSize := 30.0 * *scale
 
 	// Create a new game instance
-	game := NewGame(duration, fontSize, *corner, *monitorIdx, *timeout, *scale)
+	game := NewGame(duration, fontSize, *corner, *monitorIdx, *timeout, *scale, *padding)
 
 	// Save the window position if the process is interrupted before the
 	// countdown finishes naturally (e.g. Ctrl+C).

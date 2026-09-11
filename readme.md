@@ -107,6 +107,13 @@ countdown -scale=2 10     # twice the size (default is 1)
 countdown -scale=0.5 10   # half the size
 ```
 
+`-padding` sets the base padding in pixels around the text (default 30),
+before `-scale` multiplies it:
+
+```bash
+countdown -padding=60 10
+```
+
 ### Config file
 
 Rather than repeating flags every time, you can set defaults in a YAML

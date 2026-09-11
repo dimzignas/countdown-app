@@ -19,6 +19,9 @@
 # Multiplier for the countdown's font size and box.
 # scale: 1.5
 
+# Base padding in pixels around the text, before scale is applied.
+# padding: 30
+
 # Default countdown length, if not overridden by flags/args at runtime.
 # hours: 0
 # minutes: 10
