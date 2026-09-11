@@ -43,7 +43,7 @@ The app cross-compiles to Windows with no extra setup (ebiten's desktop
 backend is pure Go, no cgo/C toolchain needed):
 
 ```bash
-make build-windows    # produces countdown.exe
+make build-windows    # produces bin/countdown.exe
 ```
 
 This is cross-compiled from Linux and hasn't been run/tested on an
