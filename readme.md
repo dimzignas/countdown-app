@@ -2,6 +2,8 @@
 
 This is a simple countdown app built with Go and Ebiten. The application allows you to set a countdown timer, which will be displayed in a floating window. Once the timer completes, the app will terminate. It's a lightweight utility that can be installed and run locally.
 
+Original repo: https://github.com/CatalinPlesu/countdown
+
 **Note**: 95% of this code was written with the assistance of ChatGPT.
 
 ## Features
