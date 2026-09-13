@@ -17,7 +17,7 @@ build:
 	@echo "Building $(APP_NAME)..."
 	$(GO) mod tidy
 	mkdir -p $(BUILD_DIR)
-	$(GO) build $(GO_BUILD_FLAGS) -o $(BUILD_DIR)/$(APP_NAME) main.go
+	$(GO) build $(GO_BUILD_FLAGS) -o $(BUILD_DIR)/$(APP_NAME) ./cmd/$(APP_NAME)
 
 # Install the binary to the local bin directory (without sudo)
 .PHONY: install
@@ -35,7 +35,7 @@ build-windows:
 	@echo "Building $(APP_NAME).exe for Windows..."
 	$(GO) mod tidy
 	mkdir -p $(BUILD_DIR)
-	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 $(GO) build -ldflags="-s -w -H=windowsgui" -o $(BUILD_DIR)/$(APP_NAME).exe main.go
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 $(GO) build -ldflags="-s -w -H=windowsgui" -o $(BUILD_DIR)/$(APP_NAME).exe ./cmd/$(APP_NAME)
 
 # Clean up build artifacts
 .PHONY: clean
@@ -53,4 +53,4 @@ uninstall:
 # Run the app (useful for development)
 .PHONY: run
 run:
-	$(GO) run main.go
+	$(GO) run ./cmd/$(APP_NAME)

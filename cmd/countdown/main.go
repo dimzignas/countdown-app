@@ -1,14 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"image/color"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,21 +18,13 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/opentype"
-	"gopkg.in/yaml.v3"
+
+	"github.com/CatalinPlesu/countdown/internal/config"
 )
 
 // windowMargin is the gap kept between the window and the screen edge it's
 // anchored to, so the countdown isn't flush against the corner.
 const windowMargin = 20
-
-// windowState is persisted across runs so the overlay reopens where it was left.
-type windowState struct {
-	X          int `json:"x"`
-	Y          int `json:"y"`
-	MonitorIdx int `json:"monitorIdx"`
-}
-
-var validCorners = []string{"top-left", "top-right", "bottom-left", "bottom-right"}
 
 // cornerPosition returns the top-left coordinates (relative to the target
 // monitor's origin) for placing a window of size windowWidth x windowHeight
@@ -49,99 +39,6 @@ func cornerPosition(corner string, screenWidth, screenHeight, windowWidth, windo
 		y = screenHeight - windowHeight - windowMargin
 	}
 	return x, y
-}
-
-func statePath() (string, error) {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(configDir, "countdown", "state.json"), nil
-}
-
-func loadWindowState() (*windowState, bool) {
-	path, err := statePath()
-	if err != nil {
-		return nil, false
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false
-	}
-	var state windowState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, false
-	}
-	return &state, true
-}
-
-func saveWindowState(x, y, monitorIdx int) error {
-	path, err := statePath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.Marshal(windowState{X: x, Y: y, MonitorIdx: monitorIdx})
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
-}
-
-// config holds user preferences loaded from a YAML config file. Fields are
-// pointers so we can tell "not set in the file" apart from a legitimate
-// zero value, which matters for merging with CLI flags and defaults.
-type config struct {
-	Corner  *string  `yaml:"corner,omitempty"`
-	Monitor *int     `yaml:"monitor,omitempty"`
-	Timeout *int     `yaml:"timeout,omitempty"`
-	Scale   *float64 `yaml:"scale,omitempty"`
-	Padding *int     `yaml:"padding,omitempty"`
-	Hours   *int     `yaml:"hours,omitempty"`
-	Minutes *int     `yaml:"minutes,omitempty"`
-	Seconds *int     `yaml:"seconds,omitempty"`
-}
-
-// defaultConfigPath returns ~/.config/countdown/config.yaml.
-func defaultConfigPath() (string, error) {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(configDir, "countdown", "config.yaml"), nil
-}
-
-// loadConfig reads the config file at path. A missing file is not an error
-// (it just means no preferences are set); a malformed one is fatal, since
-// silently ignoring a typo'd config would be confusing.
-func loadConfig(path string) config {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return config{}
-		}
-		log.Fatalf("Failed to read config file %s: %v", path, err)
-	}
-	var cfg config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		log.Fatalf("Failed to parse config file %s: %v", path, err)
-	}
-	return cfg
-}
-
-// writeConfig marshals cfg to YAML and writes it to path, creating the
-// parent directory if needed.
-func writeConfig(path string, cfg config) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
 }
 
 type Game struct {
@@ -242,7 +139,7 @@ func (g *Game) savePosition() {
 		return
 	}
 	x, y := ebiten.WindowPosition()
-	if err := saveWindowState(x, y, g.resolvedMonitorIdx); err != nil {
+	if err := config.SaveWindowState(x, y, g.resolvedMonitorIdx); err != nil {
 		log.Printf("Failed to save window position: %v", err)
 	}
 }
@@ -324,7 +221,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		// Set the new window size
 		ebiten.SetWindowSize(g.windowWidth, g.windowHeight)
 
-		state, hasState := loadWindowState()
+		state, hasState := config.LoadWindowState()
 		explicit := g.corner != "" || g.monitorIdx >= 0
 
 		monitors := ebiten.AppendMonitors(nil)
@@ -399,7 +296,7 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func main() {
-	corner := flag.String("corner", "", fmt.Sprintf("corner to place the window in (%s); defaults to the last remembered position, or bottom-right on first run", strings.Join(validCorners, ", ")))
+	corner := flag.String("corner", "", fmt.Sprintf("corner to place the window in (%s); defaults to the last remembered position, or bottom-right on first run", strings.Join(config.ValidCorners, ", ")))
 	monitorIdx := flag.Int("monitor", -1, "index of the monitor to display on (0-based, as listed by -list-monitors); defaults to the last remembered monitor, or the current one on first run")
 	listMonitors := flag.Bool("list-monitors", false, "list available monitors and exit")
 	timeout := flag.Int("timeout", 0, "what to do once the countdown hits zero: 0 closes immediately, a positive value keeps blinking for that many extra seconds then closes, -1 keeps blinking until interrupted")
@@ -435,13 +332,13 @@ func main() {
 
 	cfgPath := *configPathFlag
 	if cfgPath == "" {
-		if p, err := defaultConfigPath(); err == nil {
+		if p, err := config.DefaultPath(); err == nil {
 			cfgPath = p
 		}
 	}
-	var cfg config
+	var cfg config.Config
 	if cfgPath != "" {
-		cfg = loadConfig(cfgPath)
+		cfg = config.Load(cfgPath)
 	}
 
 	if !setFlags["corner"] && cfg.Corner != nil {
@@ -469,8 +366,8 @@ func main() {
 		secs = *cfg.Seconds
 	}
 
-	if *corner != "" && !slices.Contains(validCorners, *corner) {
-		log.Fatalf("Invalid corner %q: must be one of %s", *corner, strings.Join(validCorners, ", "))
+	if *corner != "" && !slices.Contains(config.ValidCorners, *corner) {
+		log.Fatalf("Invalid corner %q: must be one of %s", *corner, strings.Join(config.ValidCorners, ", "))
 	}
 
 	if *scale <= 0 {
@@ -478,7 +375,7 @@ func main() {
 	}
 
 	if *saveConfig {
-		out := config{Timeout: timeout, Scale: scale, Padding: padding}
+		out := config.Config{Timeout: timeout, Scale: scale, Padding: padding}
 		if *corner != "" {
 			out.Corner = corner
 		}
@@ -497,7 +394,7 @@ func main() {
 		if cfgPath == "" {
 			log.Fatal("Could not determine a config file path to save to; pass -config explicitly")
 		}
-		if err := writeConfig(cfgPath, out); err != nil {
+		if err := config.Write(cfgPath, out); err != nil {
 			log.Fatalf("Failed to write config file %s: %v", cfgPath, err)
 		}
 		fmt.Printf("Saved config to %s\n", cfgPath)
