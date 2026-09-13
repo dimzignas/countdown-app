@@ -46,6 +46,14 @@ backend is pure Go, no cgo/C toolchain needed):
 make build-windows    # produces bin/countdown.exe
 ```
 
+Copy `bin/countdown.exe` to the Windows machine and run it from a
+terminal (PowerShell or cmd) the same way as on Linux, e.g.:
+
+```powershell
+countdown.exe 10
+countdown.exe -corner=top-left -scale=1.5 10
+```
+
 This is cross-compiled from Linux and hasn't been run/tested on an
 actual Windows machine, so treat window transparency/decoration/mouse
 passthrough behavior there as unverified.
@@ -74,9 +82,13 @@ countdown -s 90            # 90 seconds
 countdown --seconds=45     # double-dash works too
 ```
 
-The window remembers its last position and monitor between runs
-(saved to `~/.config/countdown/state.json`). On first run it defaults
-to the bottom-right corner of the current monitor.
+The window remembers its last position and monitor between runs, saved to:
+
+- Linux: `~/.config/countdown/state.json`
+- Windows: `%AppData%\countdown\state.json`
+  (typically `C:\Users\<you>\AppData\Roaming\countdown\state.json`)
+
+On first run it defaults to the bottom-right corner of the current monitor.
 
 ```bash
 countdown -list-monitors          # list available monitors and their index
@@ -117,16 +129,32 @@ countdown -padding=60 10
 ### Config file
 
 Rather than repeating flags every time, you can set defaults in a YAML
-config file at `~/.config/countdown/config.yaml` (or point elsewhere with
+config file at the default location below (or point elsewhere with
 `-config`). See [`config.example.yaml`](config.example.yaml) for every
 available option, commented out with its meaning. Any flag passed on the
 command line always overrides the config file; the config file overrides
 the app's built-in defaults; a missing config file is fine and just means
 built-in defaults apply.
 
+Default config file location:
+
+- Linux: `~/.config/countdown/config.yaml`
+- Windows: `%AppData%\countdown\config.yaml`
+  (typically `C:\Users\<you>\AppData\Roaming\countdown\config.yaml`)
+
 ```bash
+# Linux
 mkdir -p ~/.config/countdown
 cp config.example.yaml ~/.config/countdown/config.yaml
+```
+
+```powershell
+# Windows (PowerShell)
+mkdir "$env:AppData\countdown"
+copy config.example.yaml "$env:AppData\countdown\config.yaml"
+```
+
+```bash
 # edit it to your liking, then just run:
 countdown 10
 
